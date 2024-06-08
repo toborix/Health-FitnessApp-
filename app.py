@@ -3,9 +3,67 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objs as go
 import time
+from pandas.api.types import CategoricalDtype
+import plotly.express as px
+
 
 
 st.set_page_config(layout="wide")
+
+
+def plot_readiness_score(df):
+    trace = go.Scatter(
+        x=df.index,
+        y=df['readiness_score'],
+        mode='markers',
+        marker=dict(
+            size=2,
+            color='#636EFA'  # this is Plotly's default blue color
+        )
+    )
+    layout = go.Layout(
+        title="Readiness Score",
+        xaxis=dict(title='Index'),
+        yaxis=dict(title='Readiness Score')
+    )
+    fig = go.Figure(data=[trace], layout=layout)
+    st.plotly_chart(fig)
+
+cat_type = CategoricalDtype(categories=['Monday', 'Tuesday',
+                                            'Wednesday',
+                                            'Thursday', 'Friday',
+                                            'Saturday', 'Sunday'],
+                                ordered=True)
+
+def create_features(df, label=None):
+    """
+    Creates time series features from datetime index.
+    """
+    df = df.copy()
+    df['date'] = df.index
+    df['dayofweek'] = df['date'].dt.dayofweek
+    df['weekday'] = df['date'].dt.day_name()
+    df['weekday'] = df['weekday'].astype(cat_type)
+    df['quarter'] = df['date'].dt.quarter
+    df['month'] = df['date'].dt.month
+    df['year'] = df['date'].dt.year
+    df['dayofyear'] = df['date'].dt.dayofyear
+    df['dayofmonth'] = df['date'].dt.day
+    df['weekofyear'] = df['date'].dt.isocalendar().week
+    df['date_offset'] = (df.date.dt.month * 100 + df.date.dt.day - 320) % 1300
+
+    df['season'] = pd.cut(df['date_offset'], [0, 300, 602, 900, 1300],
+                          labels=['Spring', 'Summer', 'Fall', 'Winter']
+                          )
+
+    X = df[['dayofweek', 'quarter', 'month', 'year',
+            'dayofyear', 'dayofmonth', 'weekofyear', 'weekday',
+            'season']]
+    if label:
+        y = df[label]
+        return X, y
+    return X
+
 
 
 def main_page():
@@ -21,8 +79,8 @@ def main_page():
             with st.spinner('Обработка данных...'):
                 time.sleep(2)  # Имитация загрузки
                 if uploaded_file is not None:
-                    data = pd.read_csv(uploaded_file)
-                    st.session_state['user_data'] = data
+                    data = pd.read_csv(uploaded_file, index_col=[0], parse_dates=[0])
+                    st.session_state['user_data'] = data[['readiness_score', 'steps', 'sleep_in_hours', 'hr_max']]
                 st.session_state['user_info'] = {'Пол': sex, 'Возраст': age, 'Вес': weight}
                 st.session_state['info_submitted'] = True
                 st.experimental_rerun()
@@ -31,79 +89,33 @@ def main_page():
 def report_page():
 
     st.title("Отчет о метриках здоровья")
+    if 'user_data' in st.session_state:
+        df = st.session_state['user_data']
+        plot_readiness_score(df)
 
-    # Custom CSS styles
-    st.markdown("""
-        <style>
-            .metric-box {
-                background-color: #333333;
-                border-left: 5px solid #F63366;
-                color: #ffffff;
-                padding: 20px;
-                margin: 5px 10px;
-                border-radius: 10px;
-                display: inline-block;
-                font-size: 18px;
-            }
-            .metric-value {
-                font-size: 28px;
-                font-weight: bold;
-            }
-            .trend-indicator {
-                padding: 10px;
-                margin: 10px;
-                font-size: 18px;
-                text-align: center;
-                color: white;
-                border-radius: 10px;
-            }
-            .positive { background-color: #4CAF50; }
-            .negative { background-color: #f44336; }
-            .neutral { background-color: #FFC107; }
-        </style>
-    """, unsafe_allow_html=True)
+        X, y = create_features(df, label='readiness_score')
+        features_and_target = pd.concat([X, y], axis=1)
+        # Prepare the data
+        df = features_and_target.dropna()
+        # Create the box plot
+        fig = px.box(df,
+                     x='weekday',
+                     y='readiness_score',
+                     color='season',
+                     labels={
+                         "weekday": "Day of Week",
+                         "readiness_score": "Readiness score"
+                     },
+                     title='Readiness Score by Day of Week')
 
-    # Generate sample data
-    dates = pd.date_range('2021-01-01', '2021-12-31', freq='D')
-    data = pd.DataFrame({
-        'Шаги': np.random.randint(1000, 10000, size=len(dates)),
-        'Часы сна': np.random.normal(7, 1.5, size=len(dates)),
-        'Активные ккал': np.random.randint(200, 600, size=len(dates))
-    }, index=dates)
+        # Add figure display to streamlit
+        st.plotly_chart(fig)
 
-    for metric in data.columns:
-        x = np.arange(len(data))
-        y = data[metric].values
-        slope, intercept = np.polyfit(x, y, 1)
-        trend_line = slope * x + intercept
 
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=data.index, y=y, mode='lines', name='Исходные данные'))
-        fig.add_trace(
-            go.Scatter(x=data.index, y=trend_line, mode='lines', name='Линейный тренд', line=dict(color='red')))
-        fig.update_layout(title=f"{metric.capitalize()} по времени", xaxis_title='Дата', yaxis_title=metric,
-                          template='plotly_dark', autosize=True)
 
-        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.write("No data found!")
 
-        # Layout columns
-        col1, col2, col3, col_trend = st.columns([1, 1, 1, 2])
-
-        # Metric statistics
-        col1.metric("Среднее", f"{y.mean():.2f}")
-        col2.metric("Максимум", f"{y.max():.0f}")
-        col3.metric("Минимум", f"{y.min():.0f}")
-
-        # Trend interpretation
-        if slope > 0.1:
-            message, advice, color_class = "Улучшение 📈", "Продолжайте в том же духе!", "positive"
-        elif slope < -0.1:
-            message, advice, color_class = "Ухудшение 📉", "Пора принять меры.", "negative"
-        else:
-            message, advice, color_class = "Стабильно ↗️", "Поддерживайте текущий уровень.", "neutral"
-
-        trend_html = f"<div class='trend-indicator {color_class}'>{message}<br>{advice}</div>"
-        col_trend.markdown(trend_html, unsafe_allow_html=True)
 
 
 def group_health_analysis_page():
