@@ -9,7 +9,7 @@ st.set_page_config(layout="wide")
 
 
 def main_page():
-    st.title('Ввод информации пользователя')
+    st.title('Ввод информации пользователя_')
     with st.form("user_info_form"):
         sex = st.selectbox('Выберите пол', ['Мужской', 'Женский'])
         age = st.number_input('Введите возраст', min_value=12, max_value=110)
