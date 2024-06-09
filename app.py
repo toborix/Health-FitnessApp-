@@ -5,40 +5,26 @@ import plotly.graph_objs as go
 import time
 from pandas.api.types import CategoricalDtype
 import plotly.express as px
+from prophet import Prophet
+import io
 
 
 
-st.set_page_config(layout="wide")
-
-
-def plot_readiness_score(df):
-    trace = go.Scatter(
-        x=df.index,
-        y=df['readiness_score'],
-        mode='markers',
-        marker=dict(
-            size=2,
-            color='#636EFA'  # this is Plotly's default blue color
-        )
-    )
-    layout = go.Layout(
-        title="Readiness Score",
-        xaxis=dict(title='Index'),
-        yaxis=dict(title='Readiness Score')
-    )
-    fig = go.Figure(data=[trace], layout=layout)
-    st.plotly_chart(fig)
-
-cat_type = CategoricalDtype(categories=['Monday', 'Tuesday',
-                                            'Wednesday',
-                                            'Thursday', 'Friday',
-                                            'Saturday', 'Sunday'],
-                                ordered=True)
+def print_df_info(df):
+    buf = io.StringIO()
+    df.info(buf=buf)
+    st.text(buf.getvalue())
 
 def create_features(df, label=None):
     """
     Creates time series features from datetime index.
     """
+    cat_type = CategoricalDtype(categories=['Monday', 'Tuesday',
+                                            'Wednesday',
+                                            'Thursday', 'Friday',
+                                            'Saturday', 'Sunday'],
+                                ordered=True)
+
     df = df.copy()
     df['date'] = df.index
     df['dayofweek'] = df['date'].dt.dayofweek
@@ -64,6 +50,160 @@ def create_features(df, label=None):
         return X, y
     return X
 
+def plot_readiness_score(df):
+    trace = go.Scatter(
+        x=df.index,
+        y=df['readiness_score'],
+        mode='markers',
+        marker=dict(
+            size=2,
+            color='#636EFA'  # this is Plotly's default blue color
+        )
+    )
+    layout = go.Layout(
+        title="Readiness Score",
+        xaxis=dict(title='Index'),
+        yaxis=dict(title='Readiness Score')
+    )
+    fig = go.Figure(data=[trace], layout=layout)
+    st.plotly_chart(fig)
+
+def plot_target_by_day_of_week(df):
+
+    X, y = create_features(df, label='readiness_score')
+    features_and_target = pd.concat([X, y], axis=1)
+    # Prepare the data
+    df = features_and_target.dropna()
+    # Create the box plot
+    fig = px.box(df,
+                 x='weekday',
+                 y='readiness_score',
+                 color='season',
+                 labels={
+                     "weekday": "Day of Week",
+                     "readiness_score": "Readiness score"
+                 },
+                 title='Readiness Score by Day of Week')
+
+    # Add figure display to streamlit
+    st.plotly_chart(fig)
+
+
+def create_and_train_prophet_model(df_train):
+    # Prepare the data for the Prophet model
+    df_train_prophet = df_train.reset_index() \
+        .rename(columns={'date': 'ds', 'readiness_score': 'y'})
+
+    # Initialize and train the model
+    model = Prophet()
+    model.add_regressor('steps')
+    model.fit(df_train_prophet)
+
+    return model  # return the trained model
+
+
+
+def make_prediction_and_plot(df, df_train, df_test, model):
+    # Prepare the dataframe for prophet model
+    df_test_prophet = df_test.reset_index().rename(columns={'date': 'ds', 'readiness_score': 'y'})
+
+    # Use the model to make predictions
+    df_test_fcst = model.predict(df_test_prophet)
+
+    df.reset_index(level=0, inplace=True)
+    df = df.rename(columns={'index': 'date'})
+
+    # Create a Plotly figure
+    fig = go.Figure()
+
+    # Add scatter plot for the historical data
+    fig.add_trace(go.Scatter(x=df['date'][:len(df_train)], y=df['readiness_score'][:len(df_train)], mode='markers',
+                             name='Historical'))
+
+    # Add line plot for the actual values in the testing period
+    fig.add_trace(go.Scatter(x=df_test_prophet['ds'], y=df_test_prophet['y'], mode='lines', name='Actual'))
+
+    # Add line plot for the predicted values
+    fig.add_trace(go.Scatter(x=df_test_fcst['ds'], y=df_test_fcst['yhat'], mode='lines', name='Predicted'))
+
+    fig.update_layout(title='Prophet Forecast', xaxis_title='Date', yaxis_title='Readiness Score')
+
+    return fig  # returning the figure
+
+# User interface
+def user_interface(df):
+    # Previous widget code remains the same
+
+    # Button to trigger the function
+    if st.button("Create and Train Prophet Model"):
+        # Train/Test Split (call your previous function to split the data here)
+        df_train = st.session_state['df_train']
+
+        # Show a spinner while the model is being trained
+        with st.spinner('Training the model. This may take a while...'):
+            trained_model = create_and_train_prophet_model(df_train)
+            time.sleep(5)  # delay for 5 seconds
+        st.success('Model training finished!')
+
+        with st.spinner('Making predictions and plotting results...'):
+
+            df_train = st.session_state['df_train']
+            df_test = st.session_state['df_test']
+
+            fig = make_prediction_and_plot(df, df_train, df_test, trained_model)
+            st.plotly_chart(fig)  # Display the plot in Streamlit
+
+# Usage:
+# df = ...  # Your DataFrame
+# user_interface(df)
+
+
+def plot_training_test_data(df, columns_to_exclude=['sleep_in_hours', 'steps']):
+    """
+    Plots the two datasets 'TRAINING SET' & 'TEST SET'.
+
+    :param df: The original DataFrame.
+    :param columns_to_exclude: The columns to exclude during plotting.
+    """
+
+    # Extract unique years from the dataset assuming the DataFrame index is date-time based
+    years = sorted(set(df.index.year))
+
+    # User input for selected_year
+    selected_year = st.selectbox("Select a year for the train/test split:", options=years)
+
+    # Train/Test Split
+    df_train = df.loc[df.index.year < selected_year].copy()
+    df_test = df.loc[df.index.year >= selected_year].copy()
+
+    st.session_state.df_train = df_train
+    st.session_state.df_test = df_test
+
+
+    # Filter out the columns to exclude
+    df_test_filtered = df_test.drop(columns=columns_to_exclude)
+    df_train_filtered = df_train.drop(columns=columns_to_exclude)
+
+    # Prepare for plotting
+    df_test_filtered.rename(columns={'readiness_score': 'TEST SET'}, inplace=True)
+    df_train_filtered.rename(columns={'readiness_score': 'TRAINING SET'}, inplace=True)
+
+    # Combine the datasets
+    df_combined = pd.concat([df_train_filtered, df_test_filtered], axis=1)
+
+    # Create plots for each
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=df_combined.index, y=df_combined['TRAINING SET'], mode='markers', name='TRAINING SET'))
+    fig.add_trace(go.Scatter(x=df_combined.index, y=df_combined['TEST SET'], mode='markers', name='TEST SET'))
+
+    fig.update_layout(title='Readiness Score', xaxis_title='Date', yaxis_title='Readiness Score')
+
+    # Display using streamlit
+    st.plotly_chart(fig)
+
+
+st.set_page_config(layout="wide")
+
 
 
 def main_page():
@@ -83,7 +223,7 @@ def main_page():
                     st.session_state['user_data'] = data[['readiness_score', 'steps', 'sleep_in_hours', 'hr_max']]
                 st.session_state['user_info'] = {'Пол': sex, 'Возраст': age, 'Вес': weight}
                 st.session_state['info_submitted'] = True
-                st.experimental_rerun()
+                st.rerun()
 
 
 def report_page():
@@ -91,27 +231,18 @@ def report_page():
     st.title("Отчет о метриках здоровья")
     if 'user_data' in st.session_state:
         df = st.session_state['user_data']
+
+
         plot_readiness_score(df)
 
-        X, y = create_features(df, label='readiness_score')
-        features_and_target = pd.concat([X, y], axis=1)
-        # Prepare the data
-        df = features_and_target.dropna()
-        # Create the box plot
-        fig = px.box(df,
-                     x='weekday',
-                     y='readiness_score',
-                     color='season',
-                     labels={
-                         "weekday": "Day of Week",
-                         "readiness_score": "Readiness score"
-                     },
-                     title='Readiness Score by Day of Week')
+        plot_target_by_day_of_week(df)
 
-        # Add figure display to streamlit
-        st.plotly_chart(fig)
+        plot_training_test_data(df)
 
+        st.dataframe(df.head())
+        print_df_info(df)
 
+        user_interface(df)
 
     else:
         st.write("No data found!")
