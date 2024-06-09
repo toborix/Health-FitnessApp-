@@ -7,7 +7,10 @@ from pandas.api.types import CategoricalDtype
 import plotly.express as px
 from prophet import Prophet
 import io
+from pandas.plotting import register_matplotlib_converters
+from prophet.plot import plot_plotly, plot_components_plotly
 
+register_matplotlib_converters()
 
 
 def print_df_info(df):
@@ -102,33 +105,97 @@ def create_and_train_prophet_model(df_train):
     return model  # return the trained model
 
 
-
 def make_prediction_and_plot(df, df_train, df_test, model):
-    # Prepare the dataframe for prophet model
     df_test_prophet = df_test.reset_index().rename(columns={'date': 'ds', 'readiness_score': 'y'})
-
-    # Use the model to make predictions
     df_test_fcst = model.predict(df_test_prophet)
+
+    st.session_state.df_test_fcst = df_test_fcst
 
     df.reset_index(level=0, inplace=True)
     df = df.rename(columns={'index': 'date'})
 
-    # Create a Plotly figure
     fig = go.Figure()
 
-    # Add scatter plot for the historical data
-    fig.add_trace(go.Scatter(x=df['date'][:len(df_train)], y=df['readiness_score'][:len(df_train)], mode='markers',
-                             name='Historical'))
+    fig.add_trace(
+        go.Scatter(
+            x=df['date'][:len(df_train)],
+            y=df['readiness_score'][:len(df_train)],
+            mode='markers',
+            name='Historical'
+        )
+    )
 
-    # Add line plot for the actual values in the testing period
-    fig.add_trace(go.Scatter(x=df_test_prophet['ds'], y=df_test_prophet['y'], mode='lines', name='Actual'))
+    fig.add_trace(
+        go.Scatter(
+            x=df_test_prophet['ds'],
+            y=df_test_prophet['y'],
+            mode='markers',
+            marker=dict(color='orange'),  # Orange dots for actual values in the testing period
+            name='Actual'
+        )
+    )
 
-    # Add line plot for the predicted values
-    fig.add_trace(go.Scatter(x=df_test_fcst['ds'], y=df_test_fcst['yhat'], mode='lines', name='Predicted'))
+    fig.add_trace(
+        go.Scatter(
+            x=df_test_fcst['ds'],
+            y=df_test_fcst['yhat'],
+            mode='lines',
+            name='Predicted'
+        )
+    )
 
-    fig.update_layout(title='Prophet Forecast', xaxis_title='Date', yaxis_title='Readiness Score')
+    # The lower bound of the confidence interval, without a legend entry
+    fig.add_trace(
+        go.Scatter(
+            x=df_test_fcst['ds'],
+            y=df_test_fcst['yhat_lower'],
+            mode='lines',
+            line=dict(width=0),
+            hoverinfo="skip",
+            showlegend=False
+        )
+    )
 
-    return fig  # returning the figure
+    # The upper bound of the confidence interval, which will form a filled area with the earlier trace and be labelled "Confidence Interval" in the legend
+    fig.add_trace(
+        go.Scatter(
+            x=df_test_fcst['ds'],
+            y=df_test_fcst['yhat_upper'],
+            mode='lines',
+            fill='tonexty',
+            line=dict(width=0),
+            name='Confidence Interval'
+        )
+    )
+
+    fig.update_layout(
+        title='Prophet Forecast with Confidence Interval',
+        xaxis_title='Date',
+        yaxis_title='Readiness Score'
+    )
+
+    return fig
+
+def plot_forecast_components(model, df_test_fcst):
+    components_fig = plot_components_plotly(model, df_test_fcst)
+    return components_fig
+
+def plot_forecast_components(model, df_test_fcst):
+    components_fig = plot_components_plotly(model, df_test_fcst)
+
+    # Add title to the figure
+    components_fig.layout.update(title_text='Основыные, годовые и недельные тренды для показателя готовности')
+    # Set autoresize=True and update the widths of the components to 100%
+    components_fig.update_layout(autosize=True, width=None)
+
+    # Increase the gap between bars (equivalent to increasing vertical spacing between different components)
+    for axis in components_fig.layout:
+        if 'bargap' in components_fig.layout[axis]:
+            components_fig.layout[axis]['bargap'] = 1.5  # Adjust the value as needed
+
+    return components_fig
+
+
 
 # User interface
 def user_interface(df):
@@ -153,9 +220,12 @@ def user_interface(df):
             fig = make_prediction_and_plot(df, df_train, df_test, trained_model)
             st.plotly_chart(fig)  # Display the plot in Streamlit
 
-# Usage:
-# df = ...  # Your DataFrame
-# user_interface(df)
+            df_test_fcst = st.session_state['df_test_fcst']
+            components_fig = plot_forecast_components(trained_model, df_test_fcst)
+            st.plotly_chart(components_fig)
+
+
+
 
 
 def plot_training_test_data(df, columns_to_exclude=['sleep_in_hours', 'steps']):
@@ -202,6 +272,8 @@ def plot_training_test_data(df, columns_to_exclude=['sleep_in_hours', 'steps']):
     st.plotly_chart(fig)
 
 
+
+
 st.set_page_config(layout="wide")
 
 
@@ -239,8 +311,8 @@ def report_page():
 
         plot_training_test_data(df)
 
-        st.dataframe(df.head())
-        print_df_info(df)
+        # st.dataframe(df.head())
+        # print_df_info(df)
 
         user_interface(df)
 
