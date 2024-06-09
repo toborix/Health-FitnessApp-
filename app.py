@@ -69,7 +69,7 @@ def plot_readiness_score(df):
     fig = go.Figure(data=[trace], layout=layout)
     st.plotly_chart(fig)
 
-@st.cache_data
+
 def plot_target_by_day_of_week(df):
 
     X, y = create_features(df, label='readiness_score')
