@@ -188,11 +188,6 @@ def plot_forecast_components(model, df_test_fcst):
     # Set autoresize=True and update the widths of the components to 100%
     components_fig.update_layout(autosize=True, width=None)
 
-    # Increase the gap between bars (equivalent to increasing vertical spacing between different components)
-    for axis in components_fig.layout:
-        if 'bargap' in components_fig.layout[axis]:
-            components_fig.layout[axis]['bargap'] = 1.5  # Adjust the value as needed
-
     return components_fig
 
 
