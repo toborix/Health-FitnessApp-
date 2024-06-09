@@ -13,10 +13,8 @@ from prophet.plot import plot_plotly, plot_components_plotly
 register_matplotlib_converters()
 
 
-def print_df_info(df):
-    buf = io.StringIO()
-    df.info(buf=buf)
-    st.text(buf.getvalue())
+st.set_page_config(layout="wide")
+col1, col2 = st.columns([1, 1])
 
 def create_features(df, label=None):
     """
@@ -71,6 +69,7 @@ def plot_readiness_score(df):
     fig = go.Figure(data=[trace], layout=layout)
     st.plotly_chart(fig)
 
+@st.cache_data
 def plot_target_by_day_of_week(df):
 
     X, y = create_features(df, label='readiness_score')
@@ -105,14 +104,17 @@ def create_and_train_prophet_model(df_train):
     return model  # return the trained model
 
 
-def make_prediction_and_plot(df, df_train, df_test, model):
+def make_prediction_and_plot(_df, df_train, df_test, model):
     df_test_prophet = df_test.reset_index().rename(columns={'date': 'ds', 'readiness_score': 'y'})
     df_test_fcst = model.predict(df_test_prophet)
 
     st.session_state.df_test_fcst = df_test_fcst
 
+    df = _df.copy()
+
     df.reset_index(level=0, inplace=True)
     df = df.rename(columns={'index': 'date'})
+
 
     fig = go.Figure()
 
@@ -191,6 +193,90 @@ def plot_forecast_components(model, df_test_fcst):
     return components_fig
 
 
+def generate_report(df):
+    """
+    Generates a detailed report based on the readiness score and its components
+    and displays it in a Streamlit app.
+
+    Parameters:
+    analysis_data (pd.DataFrame): DataFrame containing the readiness score analysis data.
+    """
+
+    analysis_data = df.copy()
+
+    avg_daily_steps = analysis_data['steps'].mean()
+    min_daily_steps = analysis_data['steps'].min()
+    max_daily_steps = analysis_data['steps'].max()
+
+    avg_sleep_hours = analysis_data['sleep_in_hours'].mean()
+    min_sleep_hours = analysis_data['sleep_in_hours'].min()
+    max_sleep_hours = analysis_data['sleep_in_hours'].max()
+
+    avg_readiness_score = analysis_data['readiness_score'].mean()
+    min_readiness_score = analysis_data['readiness_score'].min()
+    max_readiness_score = analysis_data['readiness_score'].max()
+
+    # Generate the text report
+    report = f"""
+    **Обзор**
+    
+    Наш прогноз фокусируется на показателе `readiness_score`, составном метрике, которая предоставляет информацию о ежедневной готовности, 
+    учитывая активность, отдых и вариабельность сердечного ритма (HRV). Мы использовали модель Prophet для анализа сезонных паттернов и трендов этого 
+    показателя, что позволило нам выработать практические рекомендации по улучшению ежедневной готовности.
+
+    **Понимание показателя готовности**
+    
+    `readiness_score` рассчитывается по следующей формуле:
+    - **Показатель активности**: Учитывает активные калории и шаги.
+    - **Показатель отдыха**: Включает продолжительность сна и калории, сожженные в состоянии покоя.
+    - **Показатель HRV**: Учитывает вариабельность между минимальным и максимальным значениями сердечного ритма.
+
+    Оценивая эти три показателя, мы получаем общий показатель готовности:
+    """
+
+    formula = r"""
+    $$
+        \text{{readiness\_score}} = \frac{\text{{activity\_score}} + \text{{rest\_score}} + \text{{hrv\_score}}}{3}
+    $$
+    """
+
+    report_rest = f""" 
+    **Ключевые выводы**
+
+    1. **Общий тренд**:
+       - Трендовая линия показывает улучшение готовности со временем. Постоянные усилия могут постепенно улучшать общий показатель.
+
+    2. **Ежедневные паттерны**:
+       - Наблюдаются колебания готовности, с заметным снижением в праздничные периоды (например, в декабре). Средний показатель готовности составляет <span style='font-size:20px; font-weight:bold;'>{avg_readiness_score:.2f}</span>, минимальный <span style='font-size:20px; font-weight:bold;'>{min_readiness_score:.2f}</span>, максимальный <span style='font-size:20px; font-weight:bold;'>{max_readiness_score:.2f}</span>.
+
+    3. **Недельные паттерны**:
+       - Показатели выше с вторника по четверг и ниже в начале и конце недели.
+
+    4. **Анализ компонента шагов**:
+       - Увеличение физической активности коррелирует с более высокой готовностью. В среднем - <span style='font-size:20px; font-weight:bold;'>{avg_daily_steps:.0f}</span> шагов в день, минимум - <span style='font-size:20px; font-weight:bold;'>{min_daily_steps:.0f}</span> шагов, максимум - <span style='font-size:20px; font-weight:bold;'>{max_daily_steps:.0f}</span> шагов.
+
+    **Практические рекомендации**
+
+    1. **Последовательность - ключ к успеху**:
+       - Старайтесь придерживаться режима, особенно в отношении сна и физической активности. Поддержание в среднем <span style='font-size:20px; font-weight:bold;'>{avg_daily_steps:.0f}</span> шагов и <span style='font-size:20px; font-weight:bold;'>{avg_sleep_hours:.1f}</span> часов сна за ночь способствует балансу готовности, минимум сна - <span style='font-size:20px; font-weight:bold;'>{min_sleep_hours:.1f}</span> часа.
+
+    2. **Контроль в праздники и выходные**:
+       - Будьте внимательны в праздники и выходные, планируйте легкие упражнения и поддерживайте диету для снижения падения готовности.
+
+    3. **Середина недели**:
+       - Среда и четверг - отличные дни для продуктивных занятий и тренировок.
+
+    4. **Персональные корректировки**:
+       - Отслеживайте свои показатели и корректируйте активность. Например, добавление 1,000 шагов может повысить ваш показатель.
+
+    **Заключение**
+
+    Анализ показывает позитивные тенденции и практические советы для оптимизации вашей готовности. Фокусируйтесь на регулярности режимов, наблюдайте за показателями в праздники и используйте пики производительности.
+    """
+
+    # Display the report
+    st.markdown(report + formula + report_rest, unsafe_allow_html=True)
+
 
 # User interface
 def user_interface(df):
@@ -204,6 +290,7 @@ def user_interface(df):
         # Show a spinner while the model is being trained
         with st.spinner('Training the model. This may take a while...'):
             trained_model = create_and_train_prophet_model(df_train)
+            st.session_state.trained_model = trained_model
             time.sleep(5)  # delay for 5 seconds
         st.success('Model training finished!')
 
@@ -214,11 +301,6 @@ def user_interface(df):
 
             fig = make_prediction_and_plot(df, df_train, df_test, trained_model)
             st.plotly_chart(fig)  # Display the plot in Streamlit
-
-            df_test_fcst = st.session_state['df_test_fcst']
-            components_fig = plot_forecast_components(trained_model, df_test_fcst)
-            st.plotly_chart(components_fig)
-
 
 
 
@@ -269,7 +351,6 @@ def plot_training_test_data(df, columns_to_exclude=['sleep_in_hours', 'steps']):
 
 
 
-st.set_page_config(layout="wide")
 
 
 
@@ -293,109 +374,35 @@ def main_page():
                 st.rerun()
 
 
-def report_page():
-
-    st.title("Отчет о метриках здоровья")
+def data_page():
+    st.title("Работа с данными")
     if 'user_data' in st.session_state:
         df = st.session_state['user_data']
-
-
         plot_readiness_score(df)
-
         plot_target_by_day_of_week(df)
-
         plot_training_test_data(df)
-
-        # st.dataframe(df.head())
-        # print_df_info(df)
-
         user_interface(df)
 
-    else:
-        st.write("No data found!")
+def report_page():
+    with st.container():
+        df = st.session_state['user_data']
+        with col1:
+            st.header("Тенденции показателя готовности `readiness_score`")
+            df_test_fcst = st.session_state['df_test_fcst']
+            trained_model = st.session_state['trained_model']
+            components_fig = plot_forecast_components(trained_model, df_test_fcst)
+            st.plotly_chart(components_fig)
+
+        with col2:
+            st.header("Отчет")
+            generate_report(df)
 
 
 
-def group_health_analysis_page():
-    st.title("Панель распределения метрик здоровья")  # Translated title
 
-    # Dummy dataset with multiple users, age groups, and metrics
-    np.random.seed(42)
-    data = pd.DataFrame({
-        'Age Group': np.random.choice(['20-30', '31-40', '41-50', '51-60', '61+'], 500),
-        'Resting Heart Rate': np.random.normal(70, 10, 500),
-        'BMI': np.random.normal(25, 4, 500),
-        'VO2 Max': np.random.normal(40, 10, 500)
-    })
 
-    # Retrieve user info if exists and set default selection
-    user_info = st.session_state.get('user_info', {})
-    age = user_info.get('Возраст', None)
 
-    # Determine preselected age group based on user's age
-    if age:
-        if age < 30:
-            default_age_group = '20-30'
-        elif age < 40:
-            default_age_group = '31-40'
-        elif age < 50:
-            default_age_group = '41-50'
-        elif age < 60:
-            default_age_group = '51-60'
-        else:
-            default_age_group = '61+'
-    else:
-        default_age_group = '20-30'  # Set a default or handle appropriately.
 
-    # User input to select the age group and metric
-    age_group = st.selectbox("Выберите возрастную группу:", options=['20-30', '31-40', '41-50', '51-60', '61+'],
-                             index=['20-30', '31-40', '41-50', '51-60', '61+'].index(default_age_group))
-    metric = st.selectbox("Выберите метрику:", data.columns[1:])  # Translated prompt
-
-    # User's metric value
-    user_metric_value = data[(data['Age Group'] == age_group)][metric].sample(n=1).values[0]
-
-    # Filter data for the selected age group and metric
-    filtered_data = data[data['Age Group'] == age_group][metric]
-
-    # Create histogram of the metric for the selected age group
-    y, x = np.histogram(filtered_data, bins=20)
-    colors = ['lightsalmon' if not x[i] <= user_metric_value < x[i + 1] else 'deepskyblue' for i in range(len(x) - 1)]
-    fig = go.Figure(data=[go.Bar(x=(x[:-1] + x[1:]) / 2, y=y, marker_color=colors, width=np.diff(x))])
-
-    # Update plot layout
-    fig.update_layout(
-        title=f'Распределение {metric} для возрастной группы {age_group} с выделением метрики пользователя',
-        xaxis_title=metric,  # Metric name doesn't need translation.
-        yaxis_title="Количество",
-        template='plotly_white',
-        bargap=0.05
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-    # Explanation Text
-    percentile = np.percentile(filtered_data, 100 * (filtered_data <= user_metric_value).mean())
-    explanation = f"Ваше значение {metric} составляет {user_metric_value:.2f}, что ставит вас в {percentile:.0f} перцентиль среди вашей возрастной группы."
-
-    if percentile > 50:
-        comparison = "Это означает, что вы выше медианы для вашей возрастной группы."
-    else:
-        comparison = "Это означает, что вы ниже медианы для вашей возрастной группы."
-
-    st.write(explanation)
-    st.write(comparison)
-
-def advice_page():
-    st.title('Советы по здоровью')
-    st.write("На основе ваших данных, вот несколько советов по здоровью:")
-    if 'user_info' in st.session_state:
-        user_info = st.session_state['user_info']
-        if user_info['Возраст'] < 18:
-            st.write("Обеспечьте сбалансированное питание, богатое фруктами и овощами.")
-        elif user_info['Возраст'] < 50:
-            st.write("Регулярные упражнения важны для поддержания вашего веса.")
-        else:
-            st.write("Рекомендуются регулярные медицинские осмотры для вашей возрастной группы.")
 
 
 def navigation():
@@ -403,12 +410,11 @@ def navigation():
     st.sidebar.title("Навигация")
     if st.sidebar.button("Главная"):
         st.session_state['page'] = 'home'
+    if st.sidebar.button("Анализ данных"):
+        st.session_state['page'] = 'data'
     if st.sidebar.button("Отчет"):
         st.session_state['page'] = 'report'
-    if st.sidebar.button("Анализ здоровья групп"):  # Use your selected page name here in Russian
-        st.session_state['page'] = 'group_health_analysis'
-    if st.sidebar.button("Советы"):
-        st.session_state['page'] = 'advice'
+
 
 
 
@@ -426,9 +432,8 @@ else:
     navigation()  # Show navigation links
     if st.session_state['page'] == 'home':
         main_page()
+    elif st.session_state['page'] == 'data':
+        data_page()
     elif st.session_state['page'] == 'report':
         report_page()
-    elif st.session_state['page'] == 'advice':
-        advice_page()
-    elif st.session_state['page'] == 'group_health_analysis':
-        group_health_analysis_page()
+
