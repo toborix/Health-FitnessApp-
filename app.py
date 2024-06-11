@@ -15,7 +15,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 class UserDb:
     def __init__(self, db_name):
-        self.conn = sqlite3.connect(db_name)
+        self.conn = sqlite3.connect(db_name, check_same_thread=False)
         self.cursor = self.conn.cursor()
 
     def create_table(self):
