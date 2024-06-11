@@ -4,3 +4,4 @@ numpy~=1.26.4
 plotly~=5.22.0
 q
 prophet~=1.1.5
+Werkzeug~=3.0.3
