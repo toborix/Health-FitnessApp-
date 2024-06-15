@@ -160,13 +160,6 @@ def main_page():
         st.markdown(requirements)
 
 
-if 'info_submitted' not in st.session_state:
-    st.session_state['info_submitted'] = False
-if 'page' not in st.session_state:
-    st.session_state['page'] = 'home'  # or any other default page
-
-
-
 def data_page():
     st.title("Работа с данными")
     if 'user_data' in st.session_state:
